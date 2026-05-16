@@ -1,130 +1,363 @@
-from flask import Flask, request, jsonify, render_template
-import requests as req
+"""
+Canvas Assistant — Flask web app with user auth, persistent conversations,
+and server-side API calls to Canvas and Anthropic.
+"""
+from datetime import datetime
 import os
+
+import requests as req
+from dateutil import parser as dtparser
 from dotenv import load_dotenv
+from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask_login import (LoginManager, UserMixin, current_user, login_required,
+                         login_user, logout_user)
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(32).hex())
 
-ENV_CANVAS_URL   = os.getenv("CANVAS_API_URL", "")
-ENV_CANVAS_TOKEN = os.getenv("CANVAS_API_TOKEN", "")
-ENV_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_db_url = os.getenv(
+    'DATABASE_URL',
+    f'sqlite:///{os.path.join(os.path.dirname(__file__), "canvas_assistant.db")}',
+)
+if _db_url.startswith('postgres://'):
+    _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+db = SQLAlchemy(app)
+login_mgr = LoginManager(app)
+login_mgr.login_view = 'login'
+
+
+# ── Models ────────────────────────────────────────────────────────────────────
+
+class User(UserMixin, db.Model):
+    id              = db.Column(db.Integer, primary_key=True)
+    name            = db.Column(db.String(100), nullable=False)
+    email           = db.Column(db.String(150), unique=True, nullable=False)
+    password_hash   = db.Column(db.String(256), nullable=False)
+    canvas_url      = db.Column(db.String(256), default='')
+    canvas_token    = db.Column(db.String(512), default='')
+    anthropic_key   = db.Column(db.String(512), default='')
+    onboarding_done = db.Column(db.Boolean, default=False)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    conversations   = db.relationship('Conversation', backref='user', lazy=True,
+                                      cascade='all, delete-orphan')
+
+
+class Conversation(db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    title      = db.Column(db.String(200), default='New Chat')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    messages   = db.relationship('Message', backref='conversation', lazy=True,
+                                 cascade='all, delete-orphan',
+                                 order_by='Message.created_at')
+
+
+class Message(db.Model):
+    id              = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False)
+    role            = db.Column(db.String(20), nullable=False)
+    content         = db.Column(db.Text, nullable=False)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+@login_mgr.user_loader
+def load_user(uid):
+    return User.query.get(int(uid))
+
+
+with app.app_context():
+    db.create_all()
+
+
+# ── Canvas API ────────────────────────────────────────────────────────────────
 
 def fetch_canvas_data(canvas_url, canvas_token):
-    base = canvas_url.rstrip("/")
-    headers = {"Authorization": f"Bearer {canvas_token}"}
+    base    = canvas_url.rstrip('/')
+    headers = {'Authorization': f'Bearer {canvas_token}'}
 
-    r = req.get(f"{base}/api/v1/courses", headers=headers,
-                params={"enrollment_state": "active", "per_page": 50}, timeout=15)
+    r = req.get(f'{base}/api/v1/courses', headers=headers,
+                params={'enrollment_state': 'active', 'per_page': 50}, timeout=15)
     r.raise_for_status()
     courses = r.json()
 
     all_assignments = []
     for course in courses:
-        cid = course["id"]
-        cname = course.get("name", f"Course {cid}")
+        cid   = course['id']
+        cname = course.get('name', f'Course {cid}')
         try:
-            url = f"{base}/api/v1/courses/{cid}/assignments"
-            params = {"per_page": 50, "bucket": "upcoming",
-                      "order_by": "due_at", "include[]": "submission"}
+            url    = f'{base}/api/v1/courses/{cid}/assignments'
+            params = {'per_page': 50, 'bucket': 'upcoming',
+                      'order_by': 'due_at', 'include[]': 'submission'}
             while url:
                 res = req.get(url, headers=headers, params=params, timeout=15)
                 if not res.ok:
                     break
-                assignments = res.json()
-                for a in assignments:
-                    a["_course_name"] = cname
-                all_assignments.extend(assignments)
-                link = res.headers.get("Link", "")
-                next_url = None
-                for part in link.split(","):
-                    segs = part.strip().split(";")
-                    if len(segs) >= 2 and 'rel="next"' in segs[1]:
-                        next_url = segs[0].strip().strip("<>")
-                url = next_url
+                for a in res.json():
+                    a['_course_name'] = cname
+                    all_assignments.append(a)
+                link = res.headers.get('Link', '')
+                url  = next(
+                    (p.strip().split(';')[0].strip('<>') for p in link.split(',')
+                     if 'rel="next"' in p),
+                    None,
+                )
                 params = None
         except Exception:
             pass
 
-    return {"courses": courses, "assignments": all_assignments}
+    return {'courses': courses, 'assignments': all_assignments}
 
 
-def ask_claude(api_key, question, canvas_data):
-    from datetime import datetime
-    today = datetime.now().strftime("%A, %B %d, %Y")
+# ── Anthropic API ─────────────────────────────────────────────────────────────
+
+def ask_claude(api_key, messages, canvas_data, user_name):
+    today = datetime.now().strftime('%A, %B %d, %Y')
 
     lines = []
-    for a in canvas_data["assignments"]:
-        due = a.get("due_at", "No due date")
-        if due and due != "No due date":
-            from datetime import timezone
-            from dateutil import parser as dtparser
+    for a in canvas_data['assignments']:
+        due = a.get('due_at', 'No due date')
+        if due and due != 'No due date':
             try:
-                dt = dtparser.parse(due).astimezone()
-                due = dt.strftime("%a %b %d, %I:%M %p")
+                dt  = dtparser.parse(due).astimezone()
+                due = dt.strftime('%a %b %d, %I:%M %p')
             except Exception:
                 pass
-        submitted = " (submitted)" if (a.get("submission") or {}).get("submitted_at") else ""
-        quiz = " [QUIZ/TEST]" if "online_quiz" in (a.get("submission_types") or []) else ""
+        submitted = ' (submitted)' if (a.get('submission') or {}).get('submitted_at') else ''
+        quiz      = ' [QUIZ/TEST]' if 'online_quiz' in (a.get('submission_types') or []) else ''
         lines.append(f"- {a['name']}{quiz} | {a['_course_name']} | due: {due}{submitted}")
 
-    system = f"""You are a friendly Canvas LMS assistant for a high school student named Tyson.
-You have real-time access to his upcoming Canvas assignments.
+    system = f"""You are a friendly Canvas LMS assistant for a high school student named {user_name}.
+You have real-time access to their upcoming Canvas assignments.
 Today is {today}. Be concise, warm, and encouraging.
-If an assignment is within 2 days, flag it clearly. Offer a quick study tip when helpful.
+If an assignment is within 2 days, flag it urgently. Offer quick study tips when helpful.
+Use markdown formatting (bold, lists) to make responses easy to scan.
 
-CANVAS DATA
-Courses: {', '.join(c.get('name','') for c in canvas_data['courses'])}
+Courses: {', '.join(c.get('name', '') for c in canvas_data['courses'])}
 
 Upcoming assignments:
-{chr(10).join(lines) if lines else 'No upcoming assignments.'}"""
+{chr(10).join(lines) if lines else 'No upcoming assignments found.'}"""
 
-    res = req.post(
-        "https://api.anthropic.com/v1/messages",
+    resp = req.post(
+        'https://api.anthropic.com/v1/messages',
         headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
+            'Content-Type': 'application/json',
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01',
         },
         json={
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1024,
-            "system": system,
-            "messages": [{"role": "user", "content": question}],
+            'model': 'claude-haiku-4-5-20251001',
+            'max_tokens': 1024,
+            'system': system,
+            'messages': messages,
         },
         timeout=30,
     )
-    res.raise_for_status()
-    return res.json()["content"][0]["text"]
+    resp.raise_for_status()
+    return resp.json()['content'][0]['text']
 
 
-@app.route("/")
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+@app.route('/')
 def index():
-    return render_template("index.html")
+    if current_user.is_authenticated:
+        return redirect(url_for('onboarding') if not current_user.onboarding_done
+                        else url_for('chat'))
+    return redirect(url_for('login'))
 
 
-@app.route("/api/ask", methods=["POST"])
-def ask():
-    data = request.get_json()
-    canvas_url    = ENV_CANVAS_URL   or data.get("canvasUrl", "").strip()
-    canvas_token  = ENV_CANVAS_TOKEN or data.get("canvasToken", "").strip()
-    anthropic_key = ENV_ANTHROPIC_KEY or data.get("anthropicKey", "").strip()
-    question      = data.get("question", "").strip()
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    error = None
+    if request.method == 'POST':
+        email    = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        user     = User.query.filter_by(email=email).first()
+        if user and check_password_hash(user.password_hash, password):
+            login_user(user, remember=True)
+            return redirect(url_for('index'))
+        error = 'Invalid email or password.'
+    return render_template('login.html', error=error)
 
-    if not all([canvas_url, canvas_token, anthropic_key, question]):
-        return jsonify({"error": "Missing credentials — open Settings and fill in your Canvas URL, Canvas token, and Anthropic API key."}), 400
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    error = None
+    if request.method == 'POST':
+        name     = request.form.get('name', '').strip()
+        email    = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        confirm  = request.form.get('confirm', '')
+        if not all([name, email, password]):
+            error = 'Please fill in all fields.'
+        elif password != confirm:
+            error = 'Passwords do not match.'
+        elif len(password) < 8:
+            error = 'Password must be at least 8 characters.'
+        elif User.query.filter_by(email=email).first():
+            error = 'An account with that email already exists.'
+        else:
+            user = User(name=name, email=email,
+                        password_hash=generate_password_hash(password))
+            db.session.add(user)
+            db.session.commit()
+            login_user(user, remember=True)
+            return redirect(url_for('onboarding'))
+    return render_template('signup.html', error=error)
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+
+# ── Onboarding ────────────────────────────────────────────────────────────────
+
+@app.route('/onboarding', methods=['GET', 'POST'])
+@login_required
+def onboarding():
+    error = None
+    if request.method == 'POST':
+        canvas_url    = request.form.get('canvas_url', '').strip().rstrip('/')
+        canvas_token  = request.form.get('canvas_token', '').strip()
+        anthropic_key = request.form.get('anthropic_key', '').strip()
+        if not all([canvas_url, canvas_token, anthropic_key]):
+            error = 'Please fill in all fields before continuing.'
+        else:
+            current_user.canvas_url    = canvas_url
+            current_user.canvas_token  = canvas_token
+            current_user.anthropic_key = anthropic_key
+            current_user.onboarding_done = True
+            db.session.commit()
+            return redirect(url_for('chat'))
+    return render_template('onboarding.html', error=error, user=current_user)
+
+
+# ── Chat ──────────────────────────────────────────────────────────────────────
+
+@app.route('/chat')
+@login_required
+def chat():
+    if not current_user.onboarding_done:
+        return redirect(url_for('onboarding'))
+    return render_template('index.html', user=current_user)
+
+
+# ── Settings API ──────────────────────────────────────────────────────────────
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+@login_required
+def api_settings():
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        current_user.canvas_url    = data.get('canvas_url', '').strip().rstrip('/')
+        current_user.canvas_token  = data.get('canvas_token', '').strip()
+        current_user.anthropic_key = data.get('anthropic_key', '').strip()
+        db.session.commit()
+        return jsonify({'ok': True})
+    return jsonify({
+        'canvas_url':    current_user.canvas_url,
+        'canvas_token':  current_user.canvas_token,
+        'anthropic_key': current_user.anthropic_key,
+    })
+
+
+# ── Conversations API ─────────────────────────────────────────────────────────
+
+@app.route('/api/conversations', methods=['GET'])
+@login_required
+def list_conversations():
+    convs = (Conversation.query
+             .filter_by(user_id=current_user.id)
+             .order_by(Conversation.updated_at.desc())
+             .limit(50).all())
+    return jsonify([{
+        'id':         c.id,
+        'title':      c.title,
+        'updated_at': c.updated_at.isoformat(),
+    } for c in convs])
+
+
+@app.route('/api/conversations', methods=['POST'])
+@login_required
+def create_conversation():
+    conv = Conversation(user_id=current_user.id)
+    db.session.add(conv)
+    db.session.commit()
+    return jsonify({'id': conv.id, 'title': conv.title})
+
+
+@app.route('/api/conversations/<int:conv_id>', methods=['GET'])
+@login_required
+def get_conversation(conv_id):
+    conv = Conversation.query.filter_by(
+        id=conv_id, user_id=current_user.id).first_or_404()
+    return jsonify({
+        'id':       conv.id,
+        'title':    conv.title,
+        'messages': [{'role': m.role, 'content': m.content} for m in conv.messages],
+    })
+
+
+@app.route('/api/conversations/<int:conv_id>', methods=['DELETE'])
+@login_required
+def delete_conversation(conv_id):
+    conv = Conversation.query.filter_by(
+        id=conv_id, user_id=current_user.id).first_or_404()
+    db.session.delete(conv)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/conversations/<int:conv_id>/message', methods=['POST'])
+@login_required
+def send_message(conv_id):
+    conv     = Conversation.query.filter_by(
+        id=conv_id, user_id=current_user.id).first_or_404()
+    data     = request.get_json() or {}
+    question = data.get('question', '').strip()
+    if not question:
+        return jsonify({'error': 'Empty message.'}), 400
 
     try:
-        canvas_data = fetch_canvas_data(canvas_url, canvas_token)
-        answer = ask_claude(anthropic_key, question, canvas_data)
-        return jsonify({"answer": answer})
+        canvas_data = fetch_canvas_data(current_user.canvas_url,
+                                        current_user.canvas_token)
+        history = [{'role': m.role, 'content': m.content}
+                   for m in conv.messages[-20:]]
+        history.append({'role': 'user', 'content': question})
+
+        answer = ask_claude(current_user.anthropic_key, history,
+                            canvas_data, current_user.name)
+
+        db.session.add_all([
+            Message(conversation_id=conv.id, role='user',      content=question),
+            Message(conversation_id=conv.id, role='assistant', content=answer),
+        ])
+        if conv.title == 'New Chat':
+            conv.title = question[:60] + ('…' if len(question) > 60 else '')
+        conv.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'answer': answer, 'title': conv.title})
     except req.HTTPError as e:
-        return jsonify({"error": f"API error: {e.response.status_code} — check your credentials."}), 502
+        return jsonify({'error': f'API error {e.response.status_code} — check your credentials in Settings.'}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True, port=5000)

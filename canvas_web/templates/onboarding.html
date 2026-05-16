@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Setup — Canvas Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="theme-color" content="#c96442">
+</head>
+<body class="auth-page">
+  <div class="onboarding-card">
+
+    <!-- Progress dots -->
+    <div class="ob-progress">
+      <div class="ob-dot active" id="dot-1"></div>
+      <div class="ob-dot" id="dot-2"></div>
+    </div>
+
+    <form method="post" id="ob-form">
+
+      <!-- Step 1: Canvas -->
+      <div class="ob-step active" id="step-1">
+        <div class="ob-icon">🎓</div>
+        <h1 class="ob-title">Connect Canvas</h1>
+        <p class="ob-subtitle">We need your Canvas URL and an API token so the assistant can read your assignments.</p>
+
+        {% if error %}
+        <div class="auth-error">{{ error }}</div>
+        {% endif %}
+
+        <div class="field-group">
+          <label for="canvas_url">Canvas URL</label>
+          <input type="url" id="canvas_url" name="canvas_url"
+                 placeholder="https://yourschool.instructure.com"
+                 value="{{ user.canvas_url or '' }}">
+        </div>
+
+        <div class="field-group">
+          <label for="canvas_token">Canvas API Token</label>
+          <input type="password" id="canvas_token" name="canvas_token"
+                 placeholder="Paste your token here"
+                 value="{{ user.canvas_token or '' }}">
+        </div>
+
+        <div class="ob-howto">
+          <p class="ob-howto-title">How to get your Canvas API token:</p>
+          <ol>
+            <li>Log in to Canvas and click your <strong>profile picture</strong> (top-right)</li>
+            <li>Go to <strong>Settings</strong></li>
+            <li>Scroll down to <strong>Approved Integrations</strong></li>
+            <li>Click <strong>+ New Access Token</strong></li>
+            <li>Name it <em>"Canvas Assistant"</em> and click <strong>Generate Token</strong></li>
+            <li>Copy the token and paste it above</li>
+          </ol>
+        </div>
+
+        <button type="button" class="auth-btn" id="next-btn">Next →</button>
+      </div>
+
+      <!-- Step 2: Anthropic -->
+      <div class="ob-step" id="step-2">
+        <div class="ob-icon">🤖</div>
+        <h1 class="ob-title">Add your AI key</h1>
+        <p class="ob-subtitle">The assistant uses Claude AI. You'll need a free Anthropic API key.</p>
+
+        <div class="field-group">
+          <label for="anthropic_key">Anthropic API Key</label>
+          <input type="password" id="anthropic_key" name="anthropic_key"
+                 placeholder="sk-ant-..."
+                 value="{{ user.anthropic_key or '' }}">
+        </div>
+
+        <div class="ob-howto">
+          <p class="ob-howto-title">How to get your Anthropic API key:</p>
+          <ol>
+            <li>Go to <strong>console.anthropic.com</strong></li>
+            <li>Sign up for a free account (or log in)</li>
+            <li>Click <strong>API Keys</strong> in the left sidebar</li>
+            <li>Click <strong>Create Key</strong> and give it a name</li>
+            <li>Copy the key — <em>you can only see it once!</em></li>
+            <li>Paste it above</li>
+          </ol>
+        </div>
+
+        <div class="ob-btn-row">
+          <button type="button" class="auth-btn-outline" id="back-btn">← Back</button>
+          <button type="submit" class="auth-btn">Get started →</button>
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+  <script>
+    const step1 = document.getElementById('step-1');
+    const step2 = document.getElementById('step-2');
+    const dot1  = document.getElementById('dot-1');
+    const dot2  = document.getElementById('dot-2');
+
+    document.getElementById('next-btn').addEventListener('click', () => {
+      const url   = document.getElementById('canvas_url').value.trim();
+      const token = document.getElementById('canvas_token').value.trim();
+      if (!url || !token) {
+        alert('Please fill in both fields before continuing.');
+        return;
+      }
+      step1.classList.remove('active');
+      step2.classList.add('active');
+      dot1.classList.remove('active');
+      dot2.classList.add('active');
+    });
+
+    document.getElementById('back-btn').addEventListener('click', () => {
+      step2.classList.remove('active');
+      step1.classList.add('active');
+      dot2.classList.remove('active');
+      dot1.classList.add('active');
+    });
+
+    document.getElementById('ob-form').addEventListener('submit', (e) => {
+      const key = document.getElementById('anthropic_key').value.trim();
+      if (!key) {
+        e.preventDefault();
+        alert('Please paste your Anthropic API key.');
+      }
+    });
+  </script>
+</body>
+</html>

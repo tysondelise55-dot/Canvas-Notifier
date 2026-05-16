@@ -164,6 +164,38 @@ def filter_upcoming(assignments):
     return due
 
 
+_BIG_KEYWORDS = {
+    "test", "exam", "midterm", "final", "quiz", "project",
+    "presentation", "essay", "paper", "report", "capstone",
+}
+
+
+def filter_weekly_big(assignments):
+    """Return assignments that look like tests/projects due in the next 7 days."""
+    tz = _local_tz()
+    today = date.today()
+    week_start = datetime.combine(today, dt_time.min, tzinfo=tz)
+    week_end   = datetime.combine(today + timedelta(days=7), dt_time.max, tzinfo=tz)
+    big = []
+    for a in assignments:
+        due_at = _parse_dt(a.get("due_at"))
+        if not due_at or not (week_start <= due_at <= week_end):
+            continue
+        submission = a.get("submission") or {}
+        if submission.get("submitted_at"):
+            continue
+        name_lower = a.get("name", "").lower()
+        if any(kw in name_lower for kw in _BIG_KEYWORDS):
+            big.append(a)
+    big.sort(key=lambda a: _parse_dt(a["due_at"]))
+    return big
+
+
+def _fmt_date(dt_utc):
+    local = dt_utc.astimezone(_local_tz())
+    return f"{local.strftime('%A, %b')} {local.day}"
+
+
 # ---------------------------------------------------------------------------
 # Message formatting
 # ---------------------------------------------------------------------------
@@ -179,6 +211,19 @@ def build_message(due):
         time_str = _fmt_time(_parse_dt(assignment["due_at"]))
         lines.append(f"- {name} ({course}) due {label} @ {time_str}")
 
+    return "\n".join(lines)
+
+
+def build_weekly_briefing(big):
+    if not big:
+        return "Weekly Briefing: No big assignments, tests, or projects due this week."
+
+    lines = ["Weekly Briefing — Big Items This Week:"]
+    for a in big:
+        name   = a.get("name", "Unknown")
+        course = a.get("_course_name", "Unknown Course")
+        due_at = _parse_dt(a["due_at"])
+        lines.append(f"- {name} ({course}) — due {_fmt_date(due_at)} @ {_fmt_time(due_at)}")
     return "\n".join(lines)
 
 
@@ -205,14 +250,18 @@ def send_sms(message):
         return False
 
 
-def send_email(message):
+def send_email(message, weekly_briefing=None):
     if not all([EMAIL_FROM, EMAIL_APP_PASSWORD, EMAIL_TO]):
         logging.warning("Email skipped: missing email env vars")
         print("Email skipped: missing email credentials.")
         return False
     try:
+        body = message
+        if weekly_briefing:
+            body += f"\n\n{'─' * 40}\n\n{weekly_briefing}"
+
         subject = "Canvas Assignment Reminder"
-        msg = MIMEText(message)
+        msg = MIMEText(body)
         msg["Subject"] = subject
         msg["From"] = EMAIL_FROM
         msg["To"] = EMAIL_TO
@@ -260,8 +309,18 @@ def main():
         print(message)
         print()
 
-        sms_ok = send_sms(message)
-        email_ok = send_email(message)
+        weekly_briefing = None
+        if date.today().weekday() == 6:  # Sunday
+            big = filter_weekly_big(assignments)
+            weekly_briefing = build_weekly_briefing(big)
+            logging.info(f"Sunday — built weekly briefing with {len(big)} big item(s)")
+
+        sms_message = message
+        if weekly_briefing:
+            sms_message += f"\n\n{weekly_briefing}"
+
+        sms_ok = send_sms(sms_message)
+        email_ok = send_email(message, weekly_briefing=weekly_briefing)
 
         if not sms_ok and not email_ok:
             logging.error("Both SMS and email failed")

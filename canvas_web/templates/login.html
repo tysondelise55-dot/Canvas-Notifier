@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign In — Canvas Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="theme-color" content="#c96442">
+</head>
+<body class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="auth-logo-icon">✳</span>
+      <span class="auth-logo-text">Canvas Assistant</span>
+    </div>
+
+    <h1 class="auth-title">Welcome back</h1>
+
+    {% if error %}
+    <div class="auth-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" class="auth-form">
+      <div class="field-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+      </div>
+      <div class="field-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="auth-btn">Sign in</button>
+    </form>
+
+    <p class="auth-switch">Don't have an account? <a href="/signup">Sign up free</a></p>
+  </div>
+</body>
+</html>
