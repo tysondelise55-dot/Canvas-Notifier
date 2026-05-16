@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canvas Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+  <!-- Settings modal -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="close-settings" class="icon-btn">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <label>Canvas URL</label>
+        <input id="canvas-url" type="text" placeholder="https://yourschool.instructure.com">
+
+        <label>Canvas API Token</label>
+        <input id="canvas-token" type="password" placeholder="Your Canvas token">
+        <small>Canvas &rarr; Account &rarr; Settings &rarr; New Access Token</small>
+
+        <label>Anthropic API Key</label>
+        <input id="anthropic-key" type="password" placeholder="sk-ant-...">
+        <small>Get one at console.anthropic.com</small>
+
+        <button id="save-btn" class="primary-btn">Save Settings</button>
+        <p id="save-msg" class="hidden success-msg">Settings saved!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page layout -->
+  <div class="page">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <span class="logo">&#10033;</span>
+          <span class="brand-name">Canvas Assistant</span>
+        </div>
+        <button id="new-chat-btn" class="new-chat-btn">+ New Chat</button>
+      </div>
+      <div class="sidebar-bottom">
+        <button id="settings-btn" class="sidebar-link">&#9881; Settings</button>
+      </div>
+    </aside>
+
+    <!-- Main chat area -->
+    <main class="main">
+      <div id="messages" class="messages">
+        <div class="message assistant">
+          <div class="avatar">&#10033;</div>
+          <div class="bubble">
+            Hi Tyson! I'm your Canvas Assistant. Ask me anything about your assignments — due dates, upcoming tests, what to study, or anything else Canvas-related.
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-row">
+          <textarea id="question-input" placeholder="Ask about your Canvas assignments..." rows="1"></textarea>
+          <button id="send-btn" class="send-btn">&#10148;</button>
+        </div>
+        <p class="disclaimer">Your API keys are stored only in your browser and never saved to any server.</p>
+      </div>
+    </main>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
