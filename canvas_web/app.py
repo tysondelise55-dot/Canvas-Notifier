@@ -17,7 +17,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(32).hex())
+app.config['SECRET_KEY']        = os.getenv('SECRET_KEY', os.urandom(32).hex())
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE']   = os.getenv('RENDER') is not None
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
+app.config['REMEMBER_COOKIE_SECURE']   = os.getenv('RENDER') is not None
 
 _db_url = os.getenv(
     'DATABASE_URL',
@@ -392,9 +396,20 @@ def send_message(conv_id):
     if not question:
         return jsonify({'error': 'Empty message.'}), 400
 
+    if not current_user.canvas_url or not current_user.canvas_token:
+        return jsonify({'error': 'Canvas URL or token is missing — open Settings to add them.'}), 400
+    if not current_user.openrouter_key:
+        return jsonify({'error': 'OpenRouter API key is missing — open Settings to add it.'}), 400
+
     try:
         canvas_data = fetch_canvas_data(current_user.canvas_url,
                                         current_user.canvas_token)
+    except req.HTTPError as e:
+        return jsonify({'error': f'Canvas API error ({e.response.status_code}) — check your Canvas URL and token in Settings.'}), 502
+    except Exception as e:
+        return jsonify({'error': f'Could not reach Canvas: {e}'}), 502
+
+    try:
         history = [{'role': m.role, 'content': m.content}
                    for m in conv.messages[-20:]]
         history.append({'role': 'user', 'content': question})
@@ -402,21 +417,26 @@ def send_message(conv_id):
         model  = current_user.model_name or 'anthropic/claude-haiku-4-5-20251001'
         answer = ask_ai(current_user.openrouter_key, model, history,
                         canvas_data, current_user.name)
-
-        db.session.add_all([
-            Message(conversation_id=conv.id, role='user',      content=question),
-            Message(conversation_id=conv.id, role='assistant', content=answer),
-        ])
-        if conv.title == 'New Chat':
-            conv.title = question[:60] + ('…' if len(question) > 60 else '')
-        conv.updated_at = datetime.utcnow()
-        db.session.commit()
-
-        return jsonify({'answer': answer, 'title': conv.title})
     except req.HTTPError as e:
-        return jsonify({'error': f'API error {e.response.status_code} — check your credentials in Settings.'}), 502
+        code = e.response.status_code
+        if code == 401:
+            return jsonify({'error': 'OpenRouter key is invalid — open Settings and re-enter it.'}), 502
+        if code == 402:
+            return jsonify({'error': 'OpenRouter account has no credits — add credits at openrouter.ai.'}), 502
+        return jsonify({'error': f'AI API error ({code}) — check your OpenRouter key and model name in Settings.'}), 502
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'AI error: {e}'}), 500
+
+    db.session.add_all([
+        Message(conversation_id=conv.id, role='user',      content=question),
+        Message(conversation_id=conv.id, role='assistant', content=answer),
+    ])
+    if conv.title == 'New Chat':
+        conv.title = question[:60] + ('…' if len(question) > 60 else '')
+    conv.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({'answer': answer, 'title': conv.title})
 
 
 if __name__ == '__main__':

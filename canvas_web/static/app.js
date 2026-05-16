@@ -33,7 +33,7 @@ document.getElementById('new-chat-btn-mobile').addEventListener('click', startNe
 
 async function startNewChat() {
   closeSidebar();
-  const res  = await fetch('/api/conversations', { method: 'POST' });
+  const res  = await fetch('/api/conversations', { method: 'POST', credentials: 'same-origin' });
   const conv = await res.json();
   activeConvId = conv.id;
   messagesEl.innerHTML = '';
@@ -45,7 +45,7 @@ async function startNewChat() {
 // ── Load conversation list ────────────────────────────────────────────────
 
 async function loadConversations() {
-  const res   = await fetch('/api/conversations');
+  const res   = await fetch('/api/conversations', { credentials: 'same-origin' });
   const convs = await res.json();
   renderConvList(convs);
 }
@@ -86,7 +86,7 @@ function makeConvItem(c) {
   del.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (!confirm('Delete this chat?')) return;
-    await fetch(`/api/conversations/${c.id}`, { method: 'DELETE' });
+    await fetch(`/api/conversations/${c.id}`, { method: 'DELETE', credentials: 'same-origin' });
     if (activeConvId === c.id) {
       activeConvId = null;
       messagesEl.innerHTML = '';
@@ -114,7 +114,7 @@ async function openConversation(id) {
   activeConvId = id;
   setActiveItem(id);
 
-  const res  = await fetch(`/api/conversations/${id}`);
+  const res  = await fetch(`/api/conversations/${id}`, { credentials: 'same-origin' });
   const conv = await res.json();
 
   messagesEl.innerHTML = '';
@@ -142,7 +142,7 @@ document.querySelectorAll('.suggestion-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const text = btn.textContent;
     if (!activeConvId) {
-      const res  = await fetch('/api/conversations', { method: 'POST' });
+      const res  = await fetch('/api/conversations', { method: 'POST', credentials: 'same-origin' });
       const conv = await res.json();
       activeConvId = conv.id;
       await loadConversations();
@@ -176,7 +176,7 @@ async function handleSend() {
   if (!text) return;
 
   if (!activeConvId) {
-    const res  = await fetch('/api/conversations', { method: 'POST' });
+    const res  = await fetch('/api/conversations', { method: 'POST', credentials: 'same-origin' });
     const conv = await res.json();
     activeConvId = conv.id;
     await loadConversations();
@@ -198,9 +198,10 @@ async function sendMessage(text) {
 
   try {
     const res  = await fetch(`/api/conversations/${activeConvId}/message`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ question: text }),
+      method:      'POST',
+      credentials: 'same-origin',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ question: text }),
     });
     const data = await res.json();
 
@@ -291,9 +292,10 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
     model_name:     document.getElementById('s-model-name').value.trim(),
   };
   await fetch('/api/settings', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
+    method:      'POST',
+    credentials: 'same-origin',
+    headers:     { 'Content-Type': 'application/json' },
+    body:        JSON.stringify(body),
   });
   const msg = document.getElementById('save-msg');
   msg.classList.remove('hidden');
@@ -301,7 +303,7 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
 });
 
 async function openSettings() {
-  const res  = await fetch('/api/settings');
+  const res  = await fetch('/api/settings', { credentials: 'same-origin' });
   const data = await res.json();
   document.getElementById('s-canvas-url').value     = data.canvas_url     || '';
   document.getElementById('s-canvas-token').value   = data.canvas_token   || '';
