@@ -57,29 +57,29 @@
         <button type="button" class="auth-btn" id="next-btn">Next →</button>
       </div>
 
-      <!-- Step 2: Anthropic -->
+      <!-- Step 2: OpenRouter -->
       <div class="ob-step" id="step-2">
         <div class="ob-icon">🤖</div>
         <h1 class="ob-title">Add your AI key</h1>
-        <p class="ob-subtitle">The assistant uses Claude AI. You'll need a free Anthropic API key.</p>
+        <p class="ob-subtitle">Canvas Assistant uses OpenRouter so you can pick any AI model — Claude, GPT-4o, Gemini, and more.</p>
 
         <div class="field-group">
-          <label for="anthropic_key">Anthropic API Key</label>
-          <input type="password" id="anthropic_key" name="anthropic_key"
-                 placeholder="sk-ant-..."
-                 value="{{ user.anthropic_key or '' }}">
+          <label for="openrouter_key">OpenRouter API Key</label>
+          <input type="password" id="openrouter_key" name="openrouter_key"
+                 placeholder="sk-or-v1-..."
+                 value="{{ user.openrouter_key or '' }}">
         </div>
 
         <div class="ob-howto">
-          <p class="ob-howto-title">How to get your Anthropic API key:</p>
+          <p class="ob-howto-title">How to get your OpenRouter API key:</p>
           <ol>
-            <li>Go to <strong>console.anthropic.com</strong></li>
-            <li>Sign up for a free account (or log in)</li>
-            <li>Click <strong>API Keys</strong> in the left sidebar</li>
-            <li>Click <strong>Create Key</strong> and give it a name</li>
+            <li>Go to <strong>openrouter.ai</strong> and sign up for a free account</li>
+            <li>Click your profile icon (top-right) → <strong>API Keys</strong></li>
+            <li>Click <strong>Create Key</strong>, give it a name like "Canvas Assistant"</li>
             <li>Copy the key — <em>you can only see it once!</em></li>
             <li>Paste it above</li>
           </ol>
+          <p style="margin-top:10px;font-size:12px;color:#71717a;">OpenRouter gives you access to Claude, GPT-4o, Gemini, and dozens of other models from one key. Many models have a free tier.</p>
         </div>
 
         <div class="ob-btn-row">
@@ -101,7 +101,7 @@
       const url   = document.getElementById('canvas_url').value.trim();
       const token = document.getElementById('canvas_token').value.trim();
       if (!url || !token) {
-        alert('Please fill in both fields before continuing.');
+        alert('Please fill in both Canvas fields before continuing.');
         return;
       }
       step1.classList.remove('active');
@@ -118,10 +118,10 @@
     });
 
     document.getElementById('ob-form').addEventListener('submit', (e) => {
-      const key = document.getElementById('anthropic_key').value.trim();
+      const key = document.getElementById('openrouter_key').value.trim();
       if (!key) {
         e.preventDefault();
-        alert('Please paste your Anthropic API key.');
+        alert('Please paste your OpenRouter API key.');
       }
     });
   </script>

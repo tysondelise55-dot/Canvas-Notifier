@@ -285,9 +285,10 @@ settingsOver.addEventListener('click', (e) => { if (e.target === settingsOver) c
 
 document.getElementById('save-settings-btn').addEventListener('click', async () => {
   const body = {
-    canvas_url:    document.getElementById('s-canvas-url').value.trim(),
-    canvas_token:  document.getElementById('s-canvas-token').value.trim(),
-    anthropic_key: document.getElementById('s-anthropic-key').value.trim(),
+    canvas_url:     document.getElementById('s-canvas-url').value.trim(),
+    canvas_token:   document.getElementById('s-canvas-token').value.trim(),
+    openrouter_key: document.getElementById('s-openrouter-key').value.trim(),
+    model_name:     document.getElementById('s-model-name').value.trim(),
   };
   await fetch('/api/settings', {
     method:  'POST',
@@ -302,9 +303,10 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
 async function openSettings() {
   const res  = await fetch('/api/settings');
   const data = await res.json();
-  document.getElementById('s-canvas-url').value    = data.canvas_url    || '';
-  document.getElementById('s-canvas-token').value  = data.canvas_token  || '';
-  document.getElementById('s-anthropic-key').value = data.anthropic_key || '';
+  document.getElementById('s-canvas-url').value     = data.canvas_url     || '';
+  document.getElementById('s-canvas-token').value   = data.canvas_token   || '';
+  document.getElementById('s-openrouter-key').value = data.openrouter_key || '';
+  document.getElementById('s-model-name').value     = data.model_name     || '';
   settingsOver.classList.remove('hidden');
 }
 

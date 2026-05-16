@@ -32,9 +32,23 @@
         <small>Canvas → Account → Settings → New Access Token</small>
       </div>
       <div class="field-group">
-        <label>Anthropic API Key</label>
-        <input id="s-anthropic-key" type="password" placeholder="sk-ant-...">
-        <small>Get one at console.anthropic.com</small>
+        <label>OpenRouter API Key</label>
+        <input id="s-openrouter-key" type="password" placeholder="sk-or-v1-...">
+        <small>Get one free at openrouter.ai</small>
+      </div>
+      <div class="field-group">
+        <label>AI Model</label>
+        <input id="s-model-name" type="text" placeholder="anthropic/claude-haiku-4-5-20251001"
+               list="model-suggestions">
+        <datalist id="model-suggestions">
+          <option value="anthropic/claude-haiku-4-5-20251001">
+          <option value="anthropic/claude-sonnet-4-5">
+          <option value="openai/gpt-4o-mini">
+          <option value="openai/gpt-4o">
+          <option value="google/gemini-flash-1.5">
+          <option value="meta-llama/llama-3.1-8b-instruct:free">
+        </datalist>
+        <small>Any model from openrouter.ai/models — many have a free tier</small>
       </div>
       <button class="auth-btn" id="save-settings-btn" style="margin-top:8px">Save settings</button>
       <p class="save-msg hidden" id="save-msg">✓ Saved!</p>

@@ -1,6 +1,6 @@
 """
 Canvas Assistant — Flask web app with user auth, persistent conversations,
-and server-side API calls to Canvas and Anthropic.
+and server-side API calls to Canvas and OpenRouter (AI-agnostic).
 """
 from datetime import datetime
 import os
@@ -42,7 +42,8 @@ class User(UserMixin, db.Model):
     password_hash   = db.Column(db.String(256), nullable=False)
     canvas_url      = db.Column(db.String(256), default='')
     canvas_token    = db.Column(db.String(512), default='')
-    anthropic_key   = db.Column(db.String(512), default='')
+    openrouter_key  = db.Column('anthropic_key', db.String(512), default='')
+    model_name      = db.Column(db.String(200), default='anthropic/claude-haiku-4-5-20251001')
     onboarding_done = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     conversations   = db.relationship('Conversation', backref='user', lazy=True,
@@ -75,6 +76,16 @@ def load_user(uid):
 
 with app.app_context():
     db.create_all()
+    # Inline migration: add model_name column if it doesn't exist yet
+    with db.engine.connect() as _conn:
+        try:
+            _conn.execute(db.text(
+                "ALTER TABLE \"user\" ADD COLUMN model_name VARCHAR(200) "
+                "DEFAULT 'anthropic/claude-haiku-4-5-20251001'"
+            ))
+            _conn.commit()
+        except Exception:
+            pass
 
 
 # ── Canvas API ────────────────────────────────────────────────────────────────
@@ -116,9 +127,60 @@ def fetch_canvas_data(canvas_url, canvas_token):
     return {'courses': courses, 'assignments': all_assignments}
 
 
-# ── Anthropic API ─────────────────────────────────────────────────────────────
+# ── AI via OpenRouter ─────────────────────────────────────────────────────────
 
-def ask_claude(api_key, messages, canvas_data, user_name):
+SYSTEM_PROMPT = """You are Canvas Assistant, an AI-powered study helper for a high school student named {user_name}.
+
+## Your role
+Help the student stay on top of their Canvas LMS coursework. You have been given live data from their Canvas account including all upcoming assignments, due dates, course names, and submission statuses. Use this data to give accurate, specific answers — never make up assignment names, due dates, or course info.
+
+## Today's date
+{today}
+
+## Canvas data
+Enrolled courses: {courses}
+
+Upcoming assignments (format: name | course | due date | flags):
+{assignment_list}
+
+## How to respond
+
+### Accuracy
+- Only reference assignments and due dates that appear in the Canvas data above.
+- Always check the submission status before flagging something as urgent — never tell the student to complete an assignment they have already submitted (marked "submitted").
+- If Canvas data is empty or missing, say so honestly and suggest the student check their Canvas URL and token in Settings.
+
+### Urgency
+- Due within 24 hours → flag with ⚠️, treat as top priority, mention it first.
+- Due within 48 hours → note it is coming up soon.
+- Never downplay a deadline that is close.
+
+### Tone
+- Warm, encouraging, and direct — like a knowledgeable tutor, not a corporate chatbot.
+- Use the student's first name occasionally to keep it personal.
+- Be honest if there is a heavy workload, but stay positive and solution-focused.
+
+### Format
+- Use markdown: **bold** for important items, bullet lists for multiple assignments, clear structure.
+- Keep responses concise — the student is likely checking this on their phone between classes.
+- End each response with something actionable or encouraging (e.g., a tip, a reminder, or a brief motivational note).
+
+### Study tips
+- When flagging a test, quiz, or large project, offer a short 1–2 sentence study tip relevant to the subject if you can infer one.
+- Keep tips practical, not generic.
+
+### Scope
+- Focus primarily on Canvas assignments, due dates, courses, and study strategy.
+- For off-topic questions, give a brief helpful answer, then gently steer back to academics.
+- Never claim you can submit assignments, access grades, log into Canvas, or perform any action on the student's behalf.
+
+### Edge cases
+- If there are no upcoming assignments, briefly celebrate that and ask if the student wants help reviewing material or planning ahead.
+- If asked about a specific assignment not in the Canvas data, say you don't see it in the current data and suggest checking Canvas directly.
+- If the student seems stressed or overwhelmed, acknowledge it briefly and help them prioritize."""
+
+
+def ask_ai(api_key, model, messages, canvas_data, user_name):
     today = datetime.now().strftime('%A, %B %d, %Y')
 
     lines = []
@@ -130,38 +192,33 @@ def ask_claude(api_key, messages, canvas_data, user_name):
                 due = dt.strftime('%a %b %d, %I:%M %p')
             except Exception:
                 pass
-        submitted = ' (submitted)' if (a.get('submission') or {}).get('submitted_at') else ''
-        quiz      = ' [QUIZ/TEST]' if 'online_quiz' in (a.get('submission_types') or []) else ''
-        lines.append(f"- {a['name']}{quiz} | {a['_course_name']} | due: {due}{submitted}")
+        submitted = ' ✓ submitted' if (a.get('submission') or {}).get('submitted_at') else ''
+        kind      = ' [QUIZ/TEST]' if 'online_quiz' in (a.get('submission_types') or []) else ''
+        lines.append(f"- {a['name']}{kind} | {a['_course_name']} | due: {due}{submitted}")
 
-    system = f"""You are a friendly Canvas LMS assistant for a high school student named {user_name}.
-You have real-time access to their upcoming Canvas assignments.
-Today is {today}. Be concise, warm, and encouraging.
-If an assignment is within 2 days, flag it urgently. Offer quick study tips when helpful.
-Use markdown formatting (bold, lists) to make responses easy to scan.
-
-Courses: {', '.join(c.get('name', '') for c in canvas_data['courses'])}
-
-Upcoming assignments:
-{chr(10).join(lines) if lines else 'No upcoming assignments found.'}"""
+    system = SYSTEM_PROMPT.format(
+        user_name=user_name,
+        today=today,
+        courses=', '.join(c.get('name', '') for c in canvas_data['courses']) or 'None found',
+        assignment_list='\n'.join(lines) if lines else 'No upcoming assignments found.',
+    )
 
     resp = req.post(
-        'https://api.anthropic.com/v1/messages',
+        'https://openrouter.ai/api/v1/chat/completions',
         headers={
+            'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
-            'x-api-key': api_key,
-            'anthropic-version': '2023-06-01',
+            'X-Title': 'Canvas Assistant',
         },
         json={
-            'model': 'claude-haiku-4-5-20251001',
+            'model': model,
             'max_tokens': 1024,
-            'system': system,
-            'messages': messages,
+            'messages': [{'role': 'system', 'content': system}, *messages],
         },
         timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()['content'][0]['text']
+    return resp.json()['choices'][0]['message']['content']
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -234,13 +291,13 @@ def onboarding():
     if request.method == 'POST':
         canvas_url    = request.form.get('canvas_url', '').strip().rstrip('/')
         canvas_token  = request.form.get('canvas_token', '').strip()
-        anthropic_key = request.form.get('anthropic_key', '').strip()
-        if not all([canvas_url, canvas_token, anthropic_key]):
+        openrouter_key = request.form.get('openrouter_key', '').strip()
+        if not all([canvas_url, canvas_token, openrouter_key]):
             error = 'Please fill in all fields before continuing.'
         else:
-            current_user.canvas_url    = canvas_url
-            current_user.canvas_token  = canvas_token
-            current_user.anthropic_key = anthropic_key
+            current_user.canvas_url      = canvas_url
+            current_user.canvas_token    = canvas_token
+            current_user.openrouter_key  = openrouter_key
             current_user.onboarding_done = True
             db.session.commit()
             return redirect(url_for('chat'))
@@ -264,15 +321,17 @@ def chat():
 def api_settings():
     if request.method == 'POST':
         data = request.get_json() or {}
-        current_user.canvas_url    = data.get('canvas_url', '').strip().rstrip('/')
-        current_user.canvas_token  = data.get('canvas_token', '').strip()
-        current_user.anthropic_key = data.get('anthropic_key', '').strip()
+        current_user.canvas_url     = data.get('canvas_url', '').strip().rstrip('/')
+        current_user.canvas_token   = data.get('canvas_token', '').strip()
+        current_user.openrouter_key = data.get('openrouter_key', '').strip()
+        current_user.model_name     = data.get('model_name', '').strip() or 'anthropic/claude-haiku-4-5-20251001'
         db.session.commit()
         return jsonify({'ok': True})
     return jsonify({
-        'canvas_url':    current_user.canvas_url,
-        'canvas_token':  current_user.canvas_token,
-        'anthropic_key': current_user.anthropic_key,
+        'canvas_url':     current_user.canvas_url,
+        'canvas_token':   current_user.canvas_token,
+        'openrouter_key': current_user.openrouter_key,
+        'model_name':     current_user.model_name or 'anthropic/claude-haiku-4-5-20251001',
     })
 
 
@@ -340,8 +399,9 @@ def send_message(conv_id):
                    for m in conv.messages[-20:]]
         history.append({'role': 'user', 'content': question})
 
-        answer = ask_claude(current_user.anthropic_key, history,
-                            canvas_data, current_user.name)
+        model  = current_user.model_name or 'anthropic/claude-haiku-4-5-20251001'
+        answer = ask_ai(current_user.openrouter_key, model, history,
+                        canvas_data, current_user.name)
 
         db.session.add_all([
             Message(conversation_id=conv.id, role='user',      content=question),
