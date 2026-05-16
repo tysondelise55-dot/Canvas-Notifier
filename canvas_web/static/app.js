@@ -12,9 +12,11 @@ if (!s.canvasUrl || !s.canvasToken || !s.anthropicKey) openSettings();
 
 // Event listeners
 document.getElementById('settings-btn').addEventListener('click', openSettings);
+document.getElementById('settings-btn-mobile').addEventListener('click', openSettings);
 document.getElementById('close-settings').addEventListener('click', closeSettings);
 document.getElementById('save-btn').addEventListener('click', saveSettings);
 document.getElementById('new-chat-btn').addEventListener('click', clearChat);
+document.getElementById('new-chat-btn-mobile').addEventListener('click', clearChat);
 sendBtn.addEventListener('click', sendQuestion);
 
 overlay.addEventListener('click', (e) => {

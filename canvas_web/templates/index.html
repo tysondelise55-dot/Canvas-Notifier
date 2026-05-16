@@ -42,22 +42,24 @@
   <!-- Page layout -->
   <div class="page">
 
-    <!-- Sidebar -->
+    <!-- Sidebar (desktop only) -->
     <aside class="sidebar">
-      <div class="sidebar-top">
-        <div class="brand">
-          <span class="logo">&#10033;</span>
-          <span class="brand-name">Canvas Assistant</span>
-        </div>
-        <button id="new-chat-btn" class="new-chat-btn">+ New Chat</button>
-      </div>
+      <button class="sidebar-icon-btn" title="New Chat" id="new-chat-btn">&#43;</button>
       <div class="sidebar-bottom">
-        <button id="settings-btn" class="sidebar-link">&#9881; Settings</button>
+        <button class="sidebar-icon-btn" title="Settings" id="settings-btn">&#9881;</button>
       </div>
     </aside>
 
     <!-- Main chat area -->
     <main class="main">
+      <!-- Mobile top bar -->
+      <div class="topbar">
+        <span class="topbar-title"><span class="logo">&#10033;</span> Canvas Assistant</span>
+        <div class="topbar-actions">
+          <button class="topbar-btn" id="new-chat-btn-mobile" title="New Chat">&#43;</button>
+          <button class="topbar-btn" id="settings-btn-mobile" title="Settings">&#9881;</button>
+        </div>
+      </div>
       <div id="messages" class="messages">
         <div class="message assistant">
           <div class="avatar">&#10033;</div>
