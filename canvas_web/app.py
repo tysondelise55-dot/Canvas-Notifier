@@ -47,7 +47,7 @@ class User(UserMixin, db.Model):
     canvas_url      = db.Column(db.String(256), default='')
     canvas_token    = db.Column(db.String(512), default='')
     openrouter_key  = db.Column('anthropic_key', db.String(512), default='')
-    model_name      = db.Column(db.String(200), default='anthropic/claude-haiku-4-5-20251001')
+    model_name      = db.Column(db.String(200), default='nvidia/nemotron-3-super-120b-a12b:free')
     onboarding_done = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     conversations   = db.relationship('Conversation', backref='user', lazy=True,
@@ -85,7 +85,7 @@ with app.app_context():
         try:
             _conn.execute(db.text(
                 "ALTER TABLE \"user\" ADD COLUMN model_name VARCHAR(200) "
-                "DEFAULT 'anthropic/claude-haiku-4-5-20251001'"
+                "DEFAULT 'nvidia/nemotron-3-super-120b-a12b:free'"
             ))
             _conn.commit()
         except Exception:
@@ -328,14 +328,14 @@ def api_settings():
         current_user.canvas_url     = data.get('canvas_url', '').strip().rstrip('/')
         current_user.canvas_token   = data.get('canvas_token', '').strip()
         current_user.openrouter_key = data.get('openrouter_key', '').strip()
-        current_user.model_name     = data.get('model_name', '').strip() or 'anthropic/claude-haiku-4-5-20251001'
+        current_user.model_name     = data.get('model_name', '').strip() or 'nvidia/nemotron-3-super-120b-a12b:free'
         db.session.commit()
         return jsonify({'ok': True})
     return jsonify({
         'canvas_url':     current_user.canvas_url,
         'canvas_token':   current_user.canvas_token,
         'openrouter_key': current_user.openrouter_key,
-        'model_name':     current_user.model_name or 'anthropic/claude-haiku-4-5-20251001',
+        'model_name':     current_user.model_name or 'nvidia/nemotron-3-super-120b-a12b:free',
     })
 
 
@@ -414,7 +414,7 @@ def send_message(conv_id):
                    for m in conv.messages[-20:]]
         history.append({'role': 'user', 'content': question})
 
-        model  = current_user.model_name or 'anthropic/claude-haiku-4-5-20251001'
+        model  = current_user.model_name or 'nvidia/nemotron-3-super-120b-a12b:free'
         answer = ask_ai(current_user.openrouter_key, model, history,
                         canvas_data, current_user.name)
     except req.HTTPError as e:
