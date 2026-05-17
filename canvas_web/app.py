@@ -511,16 +511,27 @@ def apply_promo():
 @login_required
 def subscribe():
     if not STRIPE_ENABLED or not STRIPE_PRICE_ID:
-        return redirect(url_for('upgrade'))
-    session = stripe.checkout.Session.create(
-        customer_email=current_user.email,
-        mode='subscription',
-        line_items=[{'price': STRIPE_PRICE_ID, 'quantity': 1}],
-        success_url=request.host_url.rstrip('/') + '/subscribe/success?session_id={CHECKOUT_SESSION_ID}',
-        cancel_url=request.host_url.rstrip('/') + '/upgrade',
-        metadata={'user_id': current_user.id},
-    )
-    return redirect(session.url, code=303)
+        return render_template('upgrade.html', user=current_user,
+                               stripe_pub_key=STRIPE_PUB_KEY,
+                               stripe_enabled=STRIPE_ENABLED,
+                               price_display=PRICE_DISPLAY,
+                               promo_error='Stripe is not configured. Please use a promo code or contact support.')
+    try:
+        session = stripe.checkout.Session.create(
+            customer_email=current_user.email,
+            mode='subscription',
+            line_items=[{'price': STRIPE_PRICE_ID, 'quantity': 1}],
+            success_url=request.host_url.rstrip('/') + '/subscribe/success?session_id={CHECKOUT_SESSION_ID}',
+            cancel_url=request.host_url.rstrip('/') + '/upgrade',
+            metadata={'user_id': current_user.id},
+        )
+        return redirect(session.url, code=303)
+    except stripe.error.StripeError as e:
+        return render_template('upgrade.html', user=current_user,
+                               stripe_pub_key=STRIPE_PUB_KEY,
+                               stripe_enabled=STRIPE_ENABLED,
+                               price_display=PRICE_DISPLAY,
+                               promo_error=f'Stripe error: {e.user_message or str(e)}')
 
 
 @app.route('/subscribe/success')
