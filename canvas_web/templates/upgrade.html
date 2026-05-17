@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upgrade — Canvas Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="theme-color" content="#c96442">
+</head>
+<body class="auth-page">
+  <div class="upgrade-card">
+
+    <div class="auth-logo">
+      <span class="auth-logo-icon">✳</span>
+      <span class="auth-logo-text">Canvas Assistant</span>
+    </div>
+
+    {% if user.is_paid %}
+    <div class="upgrade-success">
+      <div class="upgrade-success-icon">✓</div>
+      <h1 class="auth-title" style="text-align:center">You're all set!</h1>
+      <p style="text-align:center;color:var(--text-muted);margin-bottom:20px">You have full Pro access.</p>
+      <a href="/chat" class="auth-btn" style="text-decoration:none;display:block;text-align:center">Back to chat</a>
+    </div>
+
+    {% else %}
+
+    <h1 class="auth-title">Get Pro access</h1>
+    <p class="upgrade-subtitle">Unlock unlimited AI-powered Canvas help.</p>
+
+    <ul class="upgrade-features">
+      <li>✦ Ask anything about your assignments</li>
+      <li>✦ Unlimited chat history</li>
+      <li>✦ Real-time Canvas data every message</li>
+      <li>✦ Works on any device</li>
+    </ul>
+
+    {% if stripe_enabled %}
+    <div class="upgrade-price">{{ price_display }}</div>
+    <form action="/subscribe" method="post">
+      <button type="submit" class="auth-btn">Subscribe with Stripe</button>
+    </form>
+    <div class="upgrade-divider"><span>or</span></div>
+    {% endif %}
+
+    <div class="promo-section">
+      <p class="promo-label">Have a promo code?</p>
+      {% if promo_error %}
+      <div class="auth-error">{{ promo_error }}</div>
+      {% endif %}
+      <form action="/upgrade/promo" method="post" class="promo-form">
+        <input type="text" name="code" placeholder="Enter code" autocomplete="off"
+               autocapitalize="characters" spellcheck="false">
+        <button type="submit" class="promo-btn">Apply</button>
+      </form>
+    </div>
+
+    {% endif %}
+
+    <a href="/chat" class="upgrade-back">← Back to chat</a>
+  </div>
+</body>
+</html>

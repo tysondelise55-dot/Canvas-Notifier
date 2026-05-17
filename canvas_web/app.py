@@ -5,6 +5,7 @@ and server-side API calls to Canvas and OpenRouter (AI-agnostic).
 from datetime import datetime
 import os
 
+import stripe
 import requests as req
 from dateutil import parser as dtparser
 from dotenv import load_dotenv
@@ -15,6 +16,19 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+# ── Stripe & access config ────────────────────────────────────────────────────
+stripe.api_key        = os.getenv('STRIPE_SECRET_KEY', '')
+STRIPE_PUB_KEY        = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_PRICE_ID       = os.getenv('STRIPE_PRICE_ID', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+STRIPE_ENABLED        = bool(os.getenv('STRIPE_SECRET_KEY'))
+PRICE_DISPLAY         = os.getenv('PRICE_DISPLAY', '$4.99/month')
+
+# Comma-separated promo codes, e.g. PROMO_CODES=TYSON-VIP,FRIEND-001
+PROMO_CODES  = {c.strip().upper() for c in os.getenv('PROMO_CODES', '').split(',') if c.strip()}
+# Comma-separated emails that always get free access, e.g. ADMIN_EMAILS=you@example.com
+ADMIN_EMAILS = {e.strip().lower() for e in os.getenv('ADMIN_EMAILS', '').split(',') if e.strip()}
 
 app = Flask(__name__)
 app.config['SECRET_KEY']        = os.getenv('SECRET_KEY', os.urandom(32).hex())
@@ -46,12 +60,15 @@ class User(UserMixin, db.Model):
     password_hash   = db.Column(db.String(256), nullable=False)
     canvas_url      = db.Column(db.String(256), default='')
     canvas_token    = db.Column(db.String(512), default='')
-    openrouter_key  = db.Column('anthropic_key', db.String(512), default='')
-    model_name      = db.Column(db.String(200), default='nvidia/nemotron-3-super-120b-a12b:free')
-    onboarding_done = db.Column(db.Boolean, default=False)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
-    conversations   = db.relationship('Conversation', backref='user', lazy=True,
-                                      cascade='all, delete-orphan')
+    openrouter_key         = db.Column('anthropic_key', db.String(512), default='')
+    model_name             = db.Column(db.String(200), default='nvidia/nemotron-3-super-120b-a12b:free')
+    is_paid                = db.Column(db.Boolean, default=False)
+    stripe_customer_id     = db.Column(db.String(200), default='')
+    stripe_subscription_id = db.Column(db.String(200), default='')
+    onboarding_done        = db.Column(db.Boolean, default=False)
+    created_at             = db.Column(db.DateTime, default=datetime.utcnow)
+    conversations          = db.relationship('Conversation', backref='user', lazy=True,
+                                             cascade='all, delete-orphan')
 
 
 class Conversation(db.Model):
@@ -73,6 +90,13 @@ class Message(db.Model):
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class UsedPromoCode(db.Model):
+    id      = db.Column(db.Integer, primary_key=True)
+    code    = db.Column(db.String(100), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    used_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 @login_mgr.user_loader
 def load_user(uid):
     return User.query.get(int(uid))
@@ -80,16 +104,20 @@ def load_user(uid):
 
 with app.app_context():
     db.create_all()
-    # Inline migration: add model_name column if it doesn't exist yet
+    # Inline migrations — silently skipped if column already exists
+    _new_cols = [
+        "ALTER TABLE \"user\" ADD COLUMN model_name VARCHAR(200) DEFAULT 'nvidia/nemotron-3-super-120b-a12b:free'",
+        "ALTER TABLE \"user\" ADD COLUMN is_paid BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE \"user\" ADD COLUMN stripe_customer_id VARCHAR(200) DEFAULT ''",
+        "ALTER TABLE \"user\" ADD COLUMN stripe_subscription_id VARCHAR(200) DEFAULT ''",
+    ]
     with db.engine.connect() as _conn:
-        try:
-            _conn.execute(db.text(
-                "ALTER TABLE \"user\" ADD COLUMN model_name VARCHAR(200) "
-                "DEFAULT 'nvidia/nemotron-3-super-120b-a12b:free'"
-            ))
-            _conn.commit()
-        except Exception:
-            pass
+        for _sql in _new_cols:
+            try:
+                _conn.execute(db.text(_sql))
+                _conn.commit()
+            except Exception:
+                pass
 
 
 # ── Canvas API ────────────────────────────────────────────────────────────────
@@ -271,7 +299,8 @@ def signup():
             error = 'An account with that email already exists.'
         else:
             user = User(name=name, email=email,
-                        password_hash=generate_password_hash(password))
+                        password_hash=generate_password_hash(password),
+                        is_paid=email in ADMIN_EMAILS)
             db.session.add(user)
             db.session.commit()
             login_user(user, remember=True)
@@ -315,7 +344,8 @@ def onboarding():
 def chat():
     if not current_user.onboarding_done:
         return redirect(url_for('onboarding'))
-    return render_template('index.html', user=current_user)
+    return render_template('index.html', user=current_user,
+                           stripe_enabled=STRIPE_ENABLED)
 
 
 # ── Settings API ──────────────────────────────────────────────────────────────
@@ -396,6 +426,9 @@ def send_message(conv_id):
     if not question:
         return jsonify({'error': 'Empty message.'}), 400
 
+    if STRIPE_ENABLED and not current_user.is_paid:
+        return jsonify({'error': 'upgrade_required'}), 402
+
     if not current_user.canvas_url or not current_user.canvas_token:
         return jsonify({'error': 'Canvas URL or token is missing — open Settings to add them.'}), 400
     if not current_user.openrouter_key:
@@ -437,6 +470,90 @@ def send_message(conv_id):
     db.session.commit()
 
     return jsonify({'answer': answer, 'title': conv.title})
+
+
+# ── Upgrade / payments ────────────────────────────────────────────────────────
+
+@app.route('/upgrade')
+@login_required
+def upgrade():
+    return render_template('upgrade.html', user=current_user,
+                           stripe_pub_key=STRIPE_PUB_KEY,
+                           stripe_enabled=STRIPE_ENABLED,
+                           price_display=PRICE_DISPLAY)
+
+
+@app.route('/upgrade/promo', methods=['POST'])
+@login_required
+def apply_promo():
+    code  = request.form.get('code', '').strip().upper()
+    error = None
+    if not code:
+        error = 'Please enter a promo code.'
+    elif code not in PROMO_CODES:
+        error = 'That code is not valid.'
+    elif UsedPromoCode.query.filter_by(code=code).first():
+        error = 'That code has already been used.'
+    else:
+        current_user.is_paid = True
+        db.session.add(UsedPromoCode(code=code, user_id=current_user.id))
+        db.session.commit()
+        return redirect(url_for('chat'))
+    return render_template('upgrade.html', user=current_user,
+                           stripe_pub_key=STRIPE_PUB_KEY,
+                           stripe_enabled=STRIPE_ENABLED,
+                           price_display=PRICE_DISPLAY,
+                           promo_error=error)
+
+
+@app.route('/subscribe', methods=['POST'])
+@login_required
+def subscribe():
+    if not STRIPE_ENABLED or not STRIPE_PRICE_ID:
+        return redirect(url_for('upgrade'))
+    session = stripe.checkout.Session.create(
+        customer_email=current_user.email,
+        mode='subscription',
+        line_items=[{'price': STRIPE_PRICE_ID, 'quantity': 1}],
+        success_url=request.host_url.rstrip('/') + '/subscribe/success?session_id={CHECKOUT_SESSION_ID}',
+        cancel_url=request.host_url.rstrip('/') + '/upgrade',
+        metadata={'user_id': current_user.id},
+    )
+    return redirect(session.url, code=303)
+
+
+@app.route('/subscribe/success')
+@login_required
+def subscribe_success():
+    session_id = request.args.get('session_id', '')
+    if session_id and STRIPE_ENABLED:
+        try:
+            sess = stripe.checkout.Session.retrieve(session_id)
+            if sess.payment_status in ('paid', 'no_payment_required'):
+                current_user.is_paid                = True
+                current_user.stripe_customer_id     = sess.customer or ''
+                current_user.stripe_subscription_id = sess.subscription or ''
+                db.session.commit()
+        except Exception:
+            pass
+    return redirect(url_for('chat'))
+
+
+@app.route('/webhook', methods=['POST'])
+def stripe_webhook():
+    payload = request.get_data()
+    sig     = request.headers.get('Stripe-Signature', '')
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        return '', 400
+    if event['type'] == 'customer.subscription.deleted':
+        sub_id = event['data']['object']['id']
+        user   = User.query.filter_by(stripe_subscription_id=sub_id).first()
+        if user:
+            user.is_paid = False
+            db.session.commit()
+    return '', 200
 
 
 if __name__ == '__main__':

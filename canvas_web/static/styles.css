@@ -737,3 +737,115 @@ body.auth-page {
   .welcome { padding: 24px 16px; }
   .welcome-title { font-size: 22px; }
 }
+
+/* ── Upgrade page ─────────────────────────────────────────────────────────── */
+
+.upgrade-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 36px;
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.upgrade-subtitle {
+  color: var(--text-muted);
+  font-size: 15px;
+  margin-top: -8px;
+}
+
+.upgrade-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.upgrade-features li { font-size: 14px; color: var(--text); }
+
+.upgrade-price {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--accent);
+  text-align: center;
+  letter-spacing: -0.5px;
+}
+
+.upgrade-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.upgrade-divider::before,
+.upgrade-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.promo-section { display: flex; flex-direction: column; gap: 8px; }
+
+.promo-label { font-size: 13px; font-weight: 600; color: #3f3f46; }
+
+.promo-form { display: flex; gap: 8px; }
+
+.promo-form input {
+  flex: 1;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: border-color 0.15s;
+}
+
+.promo-form input:focus { border-color: var(--accent); }
+
+.promo-btn {
+  padding: 10px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.promo-btn:hover { background: var(--border); }
+
+.upgrade-back {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.upgrade-back:hover { color: var(--text); }
+
+.upgrade-success-icon { font-size: 40px; color: #16a34a; text-align: center; }
+
+.upgrade-btn { color: var(--accent) !important; font-weight: 600; }
+
+.upgrade-btn:hover {
+  background: rgba(201,100,66,0.08) !important;
+  color: var(--accent-dark) !important;
+}

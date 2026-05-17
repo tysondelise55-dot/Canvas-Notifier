@@ -207,6 +207,10 @@ async function sendMessage(text) {
 
     loadingBubble.classList.remove('msg-loading');
 
+    if (res.status === 402) {
+      loadingBubble.innerHTML = '🔒 <strong>Pro access required.</strong> <a href="/upgrade" style="color:var(--accent);text-decoration:underline">Upgrade to start chatting →</a>';
+      return;
+    }
     if (data.answer) {
       loadingBubble.innerHTML = marked.parse(data.answer);
       if (data.title) updateConvTitle(activeConvId, data.title);

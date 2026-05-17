@@ -79,6 +79,11 @@
     </div>
 
     <div class="sidebar-footer">
+      {% if stripe_enabled and not user.is_paid %}
+      <a class="footer-btn upgrade-btn" href="/upgrade">
+        <span>⚡</span> Upgrade to Pro
+      </a>
+      {% endif %}
       <button class="footer-btn" id="settings-btn">
         <span>⚙</span> Settings
       </button>
