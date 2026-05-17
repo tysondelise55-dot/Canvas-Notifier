@@ -344,8 +344,9 @@ def onboarding():
 def chat():
     if not current_user.onboarding_done:
         return redirect(url_for('onboarding'))
-    return render_template('index.html', user=current_user,
-                           stripe_enabled=STRIPE_ENABLED)
+    if not current_user.is_paid:
+        return redirect(url_for('upgrade'))
+    return render_template('index.html', user=current_user)
 
 
 # ── Settings API ──────────────────────────────────────────────────────────────
@@ -426,7 +427,7 @@ def send_message(conv_id):
     if not question:
         return jsonify({'error': 'Empty message.'}), 400
 
-    if STRIPE_ENABLED and not current_user.is_paid:
+    if not current_user.is_paid:
         return jsonify({'error': 'upgrade_required'}), 402
 
     if not current_user.canvas_url or not current_user.canvas_token:
