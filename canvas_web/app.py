@@ -111,13 +111,13 @@ with app.app_context():
         "ALTER TABLE \"user\" ADD COLUMN stripe_customer_id VARCHAR(200) DEFAULT ''",
         "ALTER TABLE \"user\" ADD COLUMN stripe_subscription_id VARCHAR(200) DEFAULT ''",
     ]
-    with db.engine.connect() as _conn:
-        for _sql in _new_cols:
-            try:
+    for _sql in _new_cols:
+        try:
+            with db.engine.connect() as _conn:
                 _conn.execute(db.text(_sql))
                 _conn.commit()
-            except Exception:
-                pass
+        except Exception:
+            pass
 
 
 # ── Canvas API ────────────────────────────────────────────────────────────────
