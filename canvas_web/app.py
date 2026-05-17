@@ -493,7 +493,7 @@ def apply_promo():
         error = 'Please enter a promo code.'
     elif code not in PROMO_CODES:
         error = 'That code is not valid.'
-    elif UsedPromoCode.query.filter_by(code=code).first():
+    elif UsedPromoCode.query.filter_by(code=code, user_id=current_user.id).first():
         error = 'That code has already been used.'
     else:
         current_user.is_paid = True
