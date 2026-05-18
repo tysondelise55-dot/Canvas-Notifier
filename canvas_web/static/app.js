@@ -196,30 +196,43 @@ async function sendMessage(text) {
   const loadingBubble = addLoadingMessage(text);
   scrollToBottom();
 
+  const payload = {
+    method:      'POST',
+    credentials: 'same-origin',
+    headers:     { 'Content-Type': 'application/json' },
+    body:        JSON.stringify({ question: text }),
+  };
+
+  let res, data;
   try {
-    const res  = await fetch(`/api/conversations/${activeConvId}/message`, {
-      method:      'POST',
-      credentials: 'same-origin',
-      headers:     { 'Content-Type': 'application/json' },
-      body:        JSON.stringify({ question: text }),
-    });
-    const data = await res.json();
-
-    loadingBubble.classList.remove('msg-loading');
-
-    if (res.status === 402) {
-      loadingBubble.innerHTML = '🔒 <strong>Pro access required.</strong> <a href="/upgrade" style="color:var(--accent);text-decoration:underline">Upgrade to start chatting →</a>';
+    res  = await fetch(`/api/conversations/${activeConvId}/message`, payload);
+    data = await res.json();
+  } catch {
+    // First attempt failed — wait and retry once
+    loadingBubble.textContent = 'Reconnecting…';
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      res  = await fetch(`/api/conversations/${activeConvId}/message`, payload);
+      data = await res.json();
+    } catch {
+      loadingBubble.textContent = 'Could not reach the server — please try again.';
+      loadingBubble.style.color = '#ef4444';
+      scrollToBottom();
       return;
     }
-    if (data.answer) {
-      loadingBubble.innerHTML = marked.parse(data.answer);
-      if (data.title) updateConvTitle(activeConvId, data.title);
-    } else {
-      loadingBubble.textContent = data.error || 'Something went wrong.';
-      loadingBubble.style.color = '#ef4444';
-    }
-  } catch {
-    loadingBubble.textContent = 'Network error — is the server running?';
+  }
+
+  loadingBubble.classList.remove('msg-loading');
+
+  if (res.status === 402) {
+    loadingBubble.innerHTML = '<strong>Subscription required.</strong> <a href="/upgrade" style="color:var(--accent);text-decoration:underline">Subscribe to start chatting →</a>';
+    return;
+  }
+  if (data.answer) {
+    loadingBubble.innerHTML = marked.parse(data.answer);
+    if (data.title) updateConvTitle(activeConvId, data.title);
+  } else {
+    loadingBubble.textContent = data.error || 'Something went wrong.';
     loadingBubble.style.color = '#ef4444';
   }
 
