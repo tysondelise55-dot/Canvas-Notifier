@@ -193,7 +193,7 @@ async function sendMessage(text) {
   sendBtn.disabled = true;
 
   addMessage('user', text);
-  const loadingBubble = addLoadingMessage();
+  const loadingBubble = addLoadingMessage(text);
   scrollToBottom();
 
   try {
@@ -253,7 +253,15 @@ function addMessage(role, text) {
   return bubble;
 }
 
-function addLoadingMessage() {
+function isCanvasQuestion(text) {
+  const lower = text.toLowerCase();
+  const keywords = ['due', 'assign', 'class', 'course', 'quiz', 'exam', 'canvas',
+                    'submit', 'grade', 'missing', 'tonight', 'tomorrow', 'overdue',
+                    'test', 'week', 'schedule', 'homework'];
+  return keywords.some(k => lower.includes(k));
+}
+
+function addLoadingMessage(question) {
   const wrapper = document.createElement('div');
   wrapper.className = 'message assistant';
 
@@ -263,7 +271,7 @@ function addLoadingMessage() {
 
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble msg-loading';
-  bubble.textContent = 'Checking your Canvas…';
+  bubble.textContent = isCanvasQuestion(question) ? 'Checking your Canvas…' : 'Claude is thinking…';
 
   wrapper.appendChild(avatar);
   wrapper.appendChild(bubble);

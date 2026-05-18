@@ -90,6 +90,14 @@ function clearChat() {
   messagesEl.appendChild(welcome);
 }
 
+function isCanvasQuestion(text) {
+  const lower    = text.toLowerCase();
+  const keywords = ['due', 'assign', 'class', 'course', 'quiz', 'exam', 'canvas',
+                    'submit', 'grade', 'missing', 'tonight', 'tomorrow', 'overdue',
+                    'test', 'week', 'schedule', 'homework'];
+  return keywords.some(k => lower.includes(k));
+}
+
 // Simple markdown renderer
 function renderMarkdown(text) {
   let html = text
@@ -148,7 +156,7 @@ function sendQuestion() {
   loadingDiv.className = 'message assistant';
   const loadingBubble = document.createElement('div');
   loadingBubble.className = 'bubble loading';
-  loadingBubble.textContent = 'Checking your Canvas…';
+  loadingBubble.textContent = isCanvasQuestion(question) ? 'Checking your Canvas…' : 'Claude is thinking…';
   loadingDiv.appendChild(loadingBubble);
   messagesEl.appendChild(loadingDiv);
   messagesEl.scrollTop = messagesEl.scrollHeight;
