@@ -65,7 +65,7 @@ class User(UserMixin, db.Model):
     canvas_url      = db.Column(db.String(256), default='')
     canvas_token    = db.Column(db.String(512), default='')
     openrouter_key         = db.Column('anthropic_key', db.String(512), default='')
-    model_name             = db.Column(db.String(200), default='nvidia/nemotron-3-super-120b-a12b:free')
+    model_name             = db.Column(db.String(200), default='google/gemini-flash-1.5')
     is_paid                = db.Column(db.Boolean, default=False)
     stripe_customer_id     = db.Column(db.String(200), default='')
     stripe_subscription_id = db.Column(db.String(200), default='')
@@ -110,7 +110,7 @@ with app.app_context():
     db.create_all()
     # Inline migrations — silently skipped if column already exists
     _new_cols = [
-        "ALTER TABLE \"user\" ADD COLUMN model_name VARCHAR(200) DEFAULT 'nvidia/nemotron-3-super-120b-a12b:free'",
+        "ALTER TABLE \"user\" ADD COLUMN model_name VARCHAR(200) DEFAULT 'google/gemini-flash-1.5'",
         "ALTER TABLE \"user\" ADD COLUMN is_paid BOOLEAN DEFAULT FALSE",
         "ALTER TABLE \"user\" ADD COLUMN stripe_customer_id VARCHAR(200) DEFAULT ''",
         "ALTER TABLE \"user\" ADD COLUMN stripe_subscription_id VARCHAR(200) DEFAULT ''",
@@ -363,14 +363,14 @@ def api_settings():
         current_user.canvas_url     = data.get('canvas_url', '').strip().rstrip('/')
         current_user.canvas_token   = data.get('canvas_token', '').strip()
         current_user.openrouter_key = data.get('openrouter_key', '').strip()
-        current_user.model_name     = data.get('model_name', '').strip() or 'nvidia/nemotron-3-super-120b-a12b:free'
+        current_user.model_name     = data.get('model_name', '').strip() or 'google/gemini-flash-1.5'
         db.session.commit()
         return jsonify({'ok': True})
     return jsonify({
         'canvas_url':     current_user.canvas_url,
         'canvas_token':   current_user.canvas_token,
         'openrouter_key': current_user.openrouter_key,
-        'model_name':     current_user.model_name or 'nvidia/nemotron-3-super-120b-a12b:free',
+        'model_name':     current_user.model_name or 'google/gemini-flash-1.5',
     })
 
 
@@ -452,7 +452,7 @@ def send_message(conv_id):
                    for m in conv.messages[-20:]]
         history.append({'role': 'user', 'content': question})
 
-        model  = current_user.model_name or 'nvidia/nemotron-3-super-120b-a12b:free'
+        model  = current_user.model_name or 'google/gemini-flash-1.5'
         answer = ask_ai(current_user.openrouter_key, model, history,
                         canvas_data, current_user.name)
     except req.HTTPError as e:
